@@ -1,0 +1,52 @@
+#!/usr/bin/expect  
+  
+set username root
+set password 1
+set remhost 192.168.10.142
+set localfile ./pkt_fwd/
+set remotedir /root/lpy/ 
+
+spawn scp -r $localfile $username@$remhost:$remotedir  
+  
+expect {  
+        "*re you sure you want to continue connecting*"  
+        {  
+            send "yes\n"  
+            expect {  
+                "*assword*"  
+                    {  
+                        send "$password\n"  
+                    }  
+                }  
+        }  
+        "*assword*"  
+        {  
+                send "$password\n"  
+        }  
+    }  
+expect eof  
+
+
+spawn scp -r ./lora_gateway/  $username@$remhost:/root/lpy/
+  
+expect {  
+        "*re you sure you want to continue connecting*"  
+        {  
+            send "yes\n"  
+            expect {  
+                "*assword*"  
+                    {  
+                        send "$password\n"  
+                    }  
+                }  
+        }  
+        "*assword*"  
+        {  
+                send "$password\n"  
+        }  
+    }  
+expect eof  
+
+
+send_user "~~~~~~~~~~~success~~~~~~~~~\n"
+
