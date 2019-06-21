@@ -134,7 +134,7 @@ for file in files:
     # 读取图片
     img = cv2.imread(path+"/"+file)
     # print(file)
-    img = cv2.resize(img,(108,24))
+    img = cv2.resize(img,(108, 24))
     # 处理图片
     img = clean_image(img)
     # 提取图片中字符

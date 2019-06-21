@@ -6,6 +6,17 @@ import numpy as np
 from matplotlib import pyplot as plt
 import imutils
 import cv2
+import pytesseract
+from PIL import Image
+import math
+import sys
+import os
+
+curPath = os.path.abspath(os.path.dirname(__file__))
+rootPath = os.path.split(curPath)[0]
+sys.path.append(os.path.split(rootPath)[0])
+
+print(sys.path)
 
 def show_image(img, title):
     plt.figure("Image") # 图像窗口名称
@@ -14,370 +25,295 @@ def show_image(img, title):
     plt.title(title) # 图像题目
     plt.show()
 
-# load the input image, resize it, and convert it to grayscale
-image = cv2.imread("images/6789.png")
-image = imutils.resize(image, width=600)
-img = image
+# template image should be dark background and white character
+def load_template(templ_image_path):
+    # load the reference OCR-A image from disk, convert it to grayscale,
+    # and threshold it, such that the digits appear as *white* on a
+    # *black* background and invert it, such that the digits appear as *white* on a *black*
+    ref = cv2.imread(templ_image_path)
+    h, w, ch = ref.shape
+    result = np.zeros((h, w, ch), dtype=np.uint8)
 
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ref = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
+    ret, ref = cv2.threshold(ref, 80, 255, cv2.THRESH_BINARY)
+    #ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY_INV)[1]
+
+    # find contours in the OCR-A image (i.e,. the outlines of the digits)
+    # sort them from left to right, and initialize a dictionary to map
+    # digit name to the ROI
+    refCnts, hierarchy = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    #refCnts = refCnts[1]
+    refCnts = contours.sort_contours(refCnts, method="left-to-right")[0]#排列轮廓，没意义
+    #print('sort_contours len cnt:',len(refCnts))
+
+    digits = {}
+
+    # 循环浏览轮廓，提取ROI并将其与相应的数字相关联
+    for (i, c) in enumerate(refCnts):
+        # compute the bounding box for the digit, extract it, and resize
+        # it to a fixed size
+        (x, y, w, h) = cv2.boundingRect(c)
+        roi = ref[y:y + h, x:x + w]
+        roi = cv2.resize(roi, (57, 88))
+
+        # update the digits dictionary, mapping the digit name to the ROI
+        digits[i] = roi
+
+    # 从参考图像中提取数字，并将其与相应的数字名称相关联
+    print('digits:', digits.keys())
+    return digits
+
+def locate(imge):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 6))
+    sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (6, 6))
+
+    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
+
+    # compute the Scharr gradient of the tophat image, then scale
+    # the rest back into the range [0, 255]
+    gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=-1)
+    gradX = np.absolute(gradX)
+    (minVal, maxVal) = (np.min(gradX), np.max(gradX))
+    gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
+    gradX = gradX.astype("uint8")
+
+    # apply a closing operation using the rectangular kernel to help
+    # cloes gaps in between digits, then apply
+    # Otsu's thresholding method to binarize the image
+    gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
+    thresh = cv2.threshold(gradX, 10, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+    # apply a second closing operation to the binary image, again
+    # to help close gaps between digit number regions
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
+
+    refCnts, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    print("find total contours: ", len(refCnts))
+    if (len(refCnts) < 1):
+        return None, None
+
+    leftCnts = []
+    roi = []
+    # 循环浏览轮廓，提取符合设定的对象
+    for (i, c) in enumerate(refCnts):
+        (x, y, w, h) = cv2.boundingRect(c)
+        area = cv2.contourArea(c)
+        if area > 100:
+            if (h >= 30 and h <= 60 and w / h <= 4 and w / h > 2.5):
+                leftCnts.append(c)
+                roi = image[y:y + h, x - 2:x + w + 2]
+
+    print("After filte, total contours: ", len(leftCnts))
+    if (len(leftCnts) < 1):
+        return None, None
+
+    return roi, leftCnts
+
+
+def bolder_eliminate(image):
+    # image=cv2.imread(read_file,1) #读取图片 image_name应该是变量
+    # img = cv2.medianBlur(image,5) #中值滤波，去除黑色边际中可能含有的噪声干扰
+    b = cv2.threshold(image, 15, 255, cv2.THRESH_BINARY)          #调整裁剪效果
+    #binary_image = b[1]               #二值图--具有三通道
+    #binary_image = cv2.cvtColor(binary_image,cv2.COLOR_BGR2GRAY)
+    binary_image = image.copy()
+    print(binary_image.shape)       #改为单通道
+ 
+    x=binary_image.shape[0]
+    print("高度x=",x)
+    y=binary_image.shape[1]
+    print("宽度y=",y)
+    edges_x=[]
+    edges_y=[]
+    for i in range(x):
+        for j in range(y):
+            if binary_image[i][j]==255:
+                edges_x.append(i)
+                edges_y.append(j)
+ 
+    left = min(edges_x)               #左边界
+    right = max(edges_x)              #右边界
+    width = right-left + 1                #宽度
+    bottom = min(edges_y)             #底部
+    top = max(edges_y)                #顶部
+    height = top - bottom               #高度
+ 
+    pre1_picture=image[left:left+width, bottom:bottom+height]        #图片截取
+    return pre1_picture                                             #返回图片数据
+
+def character_splite(image):
+    fig = plt.figure()
+    fig.add_subplot(2,3,1)
+    plt.title("raw image")
+    plt.imshow(image)
+
+    binary_image = image.copy()
+
+    # counting non-zero value by row , axis y
+    row_nz = []
+    for row in binary_image.tolist():
+        row_nz.append(len(row) - row.count(0))
+    fig.add_subplot(2,3,3)
+    plt.title("non-zero values on y (by row)")
+    plt.plot(row_nz)
+
+    # counting non-zero value by column, x axis
+    col_nz = []
+    for col in binary_image.T.tolist():
+        col_nz.append(len(col) - col.count(0))
+    fig.add_subplot(2,3,4)
+    plt.title("non-zero values on y (by col)")
+    plt.plot(col_nz)
+
+    ##### start split
+    # first find upper and lower boundary of y (row)
+    fig.add_subplot(2,3,5)
+    plt.title("y boudary deleted")
+    upper_y = 0
+    for i,x in enumerate(row_nz):
+        if x != 0:
+            upper_y = i
+            break
+    lower_y = 0
+    for i,x in enumerate(row_nz[::-1]):
+        if x!=0:
+            lower_y = len(row_nz) - i
+            break
+    sliced_y_img = binary_image[upper_y:lower_y,:]
+    plt.imshow(sliced_y_img)
+
+    # then we find left and right boundary of every digital (x, on column)
+    fig.add_subplot(2,3,6)
+    plt.title("x boudary deleted")
+    column_boundary_list = []
+    record = False
+
+    # the start boundary
+    if col_nz[0] != 0:
+        column_boundary_list.append(1)
+
+    for i,x in enumerate(col_nz[:-1]):
+        if (col_nz[i] == 0 and col_nz[i+1] != 0) or (col_nz[i] != 0 and col_nz[i+1] == 0):
+            column_boundary_list.append(i+1)
+            print("col ", i)
+
+    # the end boundary
+    if col_nz[-1] != 0:
+        column_boundary_list.append(len(col_nz) + 1)
+
+    img_list = []
+    xl = [ column_boundary_list[i:i+2] for i in range(0,len(column_boundary_list),2) ]
+    for x in xl:
+        img_list.append(sliced_y_img[:,x[0]:x[1]] )
+
+    print("cut img cnt:", len(img_list))
+
+    # del invalid image
+    digits = []
+    for x in img_list:
+        if x.shape[1] > 5:
+            print("x shape:", x.shape)
+            x = bolder_eliminate(x)
+            #x = cv2.resize(x, (57, 88))
+            digits.append(x)
+
+    print("final img list:", len(digits))
+
+    # show image
+    fig = plt.figure()
+    plt.title("cut result")
+    for i,img in enumerate(digits):
+        fig.add_subplot(3,4,i+1)
+        plt.imshow(img)
+        plt.imsave("./result/%s.jpg"%i,img)
+    plt.show()
+
+    return digits
+
+
+def template_match(template, roi):
+    scores = []
+    # loop over the reference digit name and digit ROI
+    for (digit, digitROI) in template.items():
+        # apply correlation-based template matching, take the
+        # score, and update the scores list
+        result = cv2.matchTemplate(roi, digitROI, cv2.TM_CCOEFF)
+        (min_val, score, min_loc, max_loc) = cv2.minMaxLoc(result)
+        scores.append(score)
+        print("score:", score, ", digit:", digit)
+
+    return scores
+
+#================================================================
+RefDigits = load_template("images/ARIAL.jpg")
+
+# load the input image, resize it, and convert it to grayscale
+image = cv2.imread("/Users/leon/Project/MeterRemoteReader/watermeter_pics/WechatIMG186.jpeg")
+image = imutils.resize(image, width=600)
+img = image.copy()
+
+roi, contours = locate(image)
+if roi is None or contours is None:
+    print("failed to loate digit regin")
+    exit(-1)
+
+gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
 # img = cv2.fastNlMeansDenoisingMulti(gray, 2, 5, None, 4, 7, 35)
 # cv2.imshow("nosity", img)
-#cv2.waitKey(0)
-
+# cv2.waitKey(0)
 
 #gray = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 gauss = cv2.GaussianBlur(gray, (3, 3), 1)
 #gaus = cv2.adaptiveThreshold(gauss, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 3, 1)
 gaus = cv2.adaptiveThreshold(gauss, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 15)
 cv2.imshow("Gaus", gaus)
-#cv2.waitKey(0)
+cv2.waitKey(0)
 
-# 去除噪点
 kernel = np.ones((2, 2), np.uint8)
-gaus = cv2.morphologyEx(gaus, cv2.MORPH_OPEN, kernel)
-cv2.imshow("Open", gaus)
-#cv2.waitKey(0)
 
-#exit(0)
+# 腐蚀
+erroding = cv2.erode(gaus, kernel)
+#sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 6))
+#erroding = cv2.morphologyEx(gaus.copy(), cv2.MORPH_CLOSE, sqKernel)
+#erroding = cv2.erode(erroding, kernel)
 
-refCnts, hierarchy = cv2.findContours(gaus.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-print("find total contours: ", len(refCnts))
-
-
-leftCnts = []
-# 循环浏览轮廓，提取符合设定的对象
-for (i, c) in enumerate(refCnts):
-    # compute the bounding box for the digit, extract it, and resize
-    # it to a fixed size
-    (x, y, w, h) = cv2.boundingRect(c)
-    if (w >= 20 and h >= 25 and w / h != 1 and h > w and h < 70 and w < 50):
-        leftCnts.append(c)
-        img = cv2.rectangle(img, (x-1,y-1), (x+w+1,y+h+1), (0,0,255), 2)
-
-print("After filte, total contours: ", len(leftCnts))
-
-# refCont = cv2.drawContours(gaus.copy(), leftCnts, -1, (0, 255, 0), 1)
-# cv2.imshow('refCont', refCont)
-
-cv2.imshow('img', img)
-cv2.waitKey(0)
-exit(0)
+cv2.imshow("errode", erroding)
 
 
-rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
-sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+# 膨胀
+dilation = cv2.morphologyEx(gaus.copy(), cv2.MORPH_OPEN, kernel)
+cv2.imshow("dilate", dilation)
 
-tophat = cv2.morphologyEx(gaus, cv2.MORPH_TOPHAT, rectKernel)
-# cv2.imshow('tophat', tophat)
+# 去除孤立小区域
+contours,hierarch = cv2.findContours(gaus, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+for i in range(len(contours)):
+    area = cv2.contourArea(contours[i])
+    if area < 20:
+        # 将小区域涂黑
+        cv2.drawContours(gaus, [contours[i]], 0, 0, -1)
 
-# compute the Scharr gradient of the tophat image, then scale
-# the rest back into the range [0, 255]
-gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=-1)
-gradX = np.absolute(gradX)
-(minVal, maxVal) = (np.min(gradX), np.max(gradX))
-gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
-gradX = gradX.astype("uint8")
+cv2.imshow("clear", gaus)
 
-gradX1 = gradX
-# apply a closing operation using the rectangular kernel to help
-# cloes gaps in between credit card number digits, then apply
-# Otsu's thresholding method to binarize the image
-gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
-thresh = cv2.threshold(gradX, 10, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-#cv2.imshow('thresh 1', thresh)
+roi_digits = character_splite(gaus)
 
-
-# apply a second closing operation to the binary image, again
-# to help close gaps between credit card number regions
-thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
-#cv2.imshow('thresh 2', thresh)
-
-
-refCnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-print("find total contours: ", len(refCnts))
-if (len(refCnts) < 1):
-    exit(0)
-
-
-leftCnts = []
-locs = []
-# 循环浏览轮廓，提取符合设定的对象
-for (i, c) in enumerate(refCnts):
-    # compute the bounding box for the digit, extract it, and resize
-    # it to a fixed size
-    (x, y, w, h) = cv2.boundingRect(c)
-    #if (w >= 20 and h >= 25 and h /w < 10 and h / w > 2):
-    if (w >= 60 and h >= 50 and h < 60 and w > h and w / h <= 2.5 and w / h > 1):
-        leftCnts.append(c)
-        locs.append((x, y, w, h))
-        img = cv2.rectangle(img, (x-1,y-1), (x+w+1,y+h+1), (0,0,255), 2)
-
-print("After filte, total contours: ", len(leftCnts))
-if (len(leftCnts) < 1):
-    exit(0)
-
-locs = sorted(locs, key=lambda x: x[0])
-print("locs len:", len(locs))
-
-# loop over the 4 groupings of 4 digits
-# find bounding boxes that are aligned at y position
-# for (i, (gX, gY, gW, gH)) in enumerate(locs):
-#     # initialize the list of group digits
-#     groupOutput = []
-
-#     if abs()
-
-
-
-# cv2.imshow('img', img)
-# cv2.waitKey(0)
-
-
-images = [img]
-images.append(gray)
-images.append(gaus)
-images.append(tophat)
-images.append(gradX1)
-images.append(gradX)
-images.append(thresh)
-
-titles = ['image', 'gray', 'gaus', 'tophat', 'gradX1', 'gradX', 'thresh']
-
-for i in range(len(images)):
-    plt.subplot(3, 3, i + 1), plt.imshow(images[i], 'gray')
-    plt.title(titles[i])
-    plt.xticks([]), plt.yticks([])
-
-plt.show()
-
-
-exit(0)
-
-#-------------------------------------------------------------------------
-
-# apply a tophat (whitehat) morphological operator to find light
-# regions against a dark background (i.e., the credit card numbers)
-tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
-
-
-# compute the Scharr gradient of the tophat image, then scale
-# the rest back into the range [0, 255]
-gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=-1)
-gradX = np.absolute(gradX)
-(minVal, maxVal) = (np.min(gradX), np.max(gradX))
-gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
-gradX = gradX.astype("uint8")
-
-# apply a closing operation using the rectangular kernel to help
-# cloes gaps in between credit card number digits, then apply
-# Otsu's thresholding method to binarize the image
-gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
-thresh = cv2.threshold(gradX, 10, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-
-# apply a second closing operation to the binary image, again
-# to help close gaps between credit card number regions
-thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
-
-
-# # 给出一个矩形矩阵:
-k = cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4))
-thresh = cv2.dilate(thresh, k)
-# cv2.imshow('thresh 3', thresh)
-# cv2.waitKey(0)
-
-images = [image]
-images.append(gray)
-images.append(tophat)
-images.append(gradX)
-images.append(thresh)
-
-titles = ['image', 'gray', 'tophat', 'gradX', 'thresh']
-
-for i in range(len(images)):
-    plt.subplot(2, 3, i + 1), plt.imshow(images[i], 'gray')
-    plt.title(titles[i])
-    plt.xticks([]), plt.yticks([])
-
-plt.show()
-
-exit(0)
-
-
-
-# find contours in the thresholded image, then initialize the
-# list of digit locations找到轮廓并初始化数字分组位置列表。
-cnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-#cnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-# cnts = cnts[0] if imutils.is_cv2() else cnts[1]
-print("cnts = ", len(cnts))
-
-# for cnt in range(len(cnts)):
-#     # 提取与绘制轮廓
-#     cv2.drawContours(cardResult, cnts, cnt, (0, 255, 0), 1)
-
-#cv2.imshow("Contours Result", cardResult)
-#cv2.waitKey(0)
-#exit(0)
-
-
-# h, w, ch = thresh.shape
-# result = np.zeros((h, w, ch), dtype=np.uint8)
-# for cnt in range(len(cnts)):
-#     # 提取与绘制轮廓
-#     cv2.drawContours(thresh, cnts, cnt, (0, 255, 0), 2)
-
-'''
-#提取小轮廓：
-boxes = []
-for i in range(len(hierarchy[0])):
-    if hierarchy[0][i][3] == 0:
-        boxes.append(hierarchy[0][i])
-
-img = thresh
-#提取数字：
-nm = []
-for j in range(len(boxes)):
-    if boxes[j][2] != -1:
-        x, y, w, h = cv2.boundingRect(cnts[boxes[j][2]])
-        print("x,y,w,h=", x, y, w, h)
-        #在原图中框选各个数字
-        img = cv2.rectangle(img, (x-1,y-1), (x+w+1,y+h+1), (0,0,255), 2)
-
-cv2.imshow('img', img)
-cv2.waitKey(0)
-'''
-
-locs = []
-# loop over the contours
-for (i, c) in enumerate(cnts):
-    # compute the bounding box of the contour, then use the
-    # bounding box coordinates to derive the aspect ratio
-    (x, y, w, h) = cv2.boundingRect(c)
-    ar = w / float(h)
-
-    print("ar:", ar, "w", w, "h", h)
-
-    # since credit cards used a fixed size fonts with 4 groups
-    # of 4 digits, we can prune potential contours based on the
-    # aspect ratio根据每个轮廓的宽高比进行过滤
-    if ar > 2.5 and ar < 4.0:
-        # contours can further be pruned on minimum/maximum width
-        # and height使用纵横比，我们分析每个轮廓的形状。如果 ar 在2.5到4.0之间（比它高），
-        # 以及40到55个像素之间的 w以及 10到20像素之间的h，我们将一个方便的元组的边界矩形参数附加到 locs
-        if (w > 40 and w < 55) and (h > 10 and h < 20):
-            # append the bounding box region of the digits group
-            # to our locations list
-            locs.append((x, y, w, h))
-
-# sort the digit locations from left-to-right, then initialize the
-# list of classified digits
-locs = sorted(locs, key=lambda x: x[0])
-print("locs len:", len(locs))
-
-# for cnt in range(len(locs)):
-#     # 提取与绘制轮廓
-#     cv2.drawContours(cardResult, cnts, cnt, (0, 255, 0), 1)
-
-# cv2.imshow("Analysis Result", cardResult)
-# #cv2.waitKey(0)
-grpImgs = []
-grpImgTitle = []
+# new_img = Image.fromarray(gaus)
+# code = pytesseract.image_to_string(new_img, config='--psm 7')
+# print("code = ", code)
 output = []
-# loop over the 4 groupings of 4 digits
-for (i, (gX, gY, gW, gH)) in enumerate(locs):
-    # initialize the list of group digits
-    groupOutput = []
-
-    # extract the group ROI of 4 digits from the grayscale image,
-    # then apply thresholding to segment the digits from the
-    # background of the credit card
-    group = gray[gY - 2:gY + gH + 2, gX - 2:gX + gW + 2]
-    group = cv2.threshold(group, 10, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    grpImgs.append(group)
-    grpImgTitle.append("group" + str(i))
-
-    # detect the contours of each individual digit in the group,
-    # then sort the digit contours from left to right
-    digitCnts = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-
-    #digitCnts = digitCnts[0] if imutils.is_cv2() else digitCnts[1]
-    #digitCnts = digitCnts[1]
-    digitCnts = contours.sort_contours(digitCnts, method="left-to-right")[0]
-
-    print("group ", i, " find ", len(digitCnts), " contours")
-
-    # loop over the digit contours
-    j = 0
-    for c in digitCnts:
-        # compute the bounding box of the individual digit, extract
-        # the digit, and resize it to have the same fixed size as
-        # the reference OCR-A images
-        (x, y, w, h) = cv2.boundingRect(c)
-        roi = group[y:y + h, x:x + w]
-        roi = cv2.resize(roi, (57, 88))
-
-        grpImgs.append(roi)
-        grpImgTitle.append("item" + str(j))
-
-        print("--------- grp: ", i, " member: ", j, " -----------")
-        #cv2.imshow("group digit " + str(j), roi)
-        # cv2.waitKey(0)
-        j = j + 1
-
-        # initialize a list of template matching scores
-        scores = []
-
-        # loop over the reference digit name and digit ROI
-        for (digit, digitROI) in digits.items():
-            # apply correlation-based template matching, take the
-            # score, and update the scores list
-            result = cv2.matchTemplate(roi, digitROI, cv2.TM_CCOEFF)
-            (min_val, score, min_loc, max_loc) = cv2.minMaxLoc(result)
-            scores.append(score)
-            # top_left = max_loc
-            # w, h = digitROI.shape[::-1]
-            # bottom_right = (top_left[0] + w, top_left[1] + h)
-            # cv2.rectangle(image, top_left, bottom_right, 255, 2)
-            print("score:", score, ", digit:", digit)
-
-        #cv2.imshow("group" + str(i) + ", digit " + str(j), roi)
-        #cv2.imshow("matched digit " + str(np.argmax(scores)),
-        #           digits[np.argmax(scores)])
-        #cv2.waitKey(0)
-
-        # the classification for the digit ROI will be the reference
-        # digit name with the *largest* template matching score
-        groupOutput.append(str(np.argmax(scores)))  # draw the digit classifications around the group
-        cv2.rectangle(image, (gX - 5, gY - 5),
-                      (gX + gW + 5, gY + gH + 5), (0, 0, 255), 1)
-        cv2.putText(image, "".join(groupOutput), (gX, gY - 15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 1)
-
-    for k in range(len(digits)):
-        grpImgs.append(digits[k])
-        grpImgTitle.append("Temp" + str(k))
-
-    for k in range(len(grpImgs)):
-        plt.subplot(3, 5, k + 1), plt.imshow(grpImgs[k], 'gray')
-        plt.title(grpImgTitle[k])
-        plt.xticks([]), plt.yticks([])
+groupOutput = []
+for digit in roi_digits:
+    scores = template_match(RefDigits, digit)
+    groupOutput.append(str(np.argmax(scores)))  # draw the digit classifications around the group
 
 
-    plt.show()
-
-    grpImgTitle = []
-    grpImgs = []
-
-    # update the output digits list
-    output.extend(groupOutput)
-
-    cv2.imshow("group", group)
-    #cv2.waitKey(0)
+# update the output digits list
+output.extend(groupOutput)
 
 # display the output credit card information to the screen
-#print("Credit Card Type: {}".format(FIRST_NUMBER.get(output[0], 'None')))
-print("Credit Card #: {}".format("".join(output)))
+print("Meter digits: {}".format("".join(output)))
 cv2.imshow("Image", image)  # TODO 效果不是很好，需要改进
 cv2.waitKey(0)

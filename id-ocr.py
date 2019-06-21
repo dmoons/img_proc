@@ -31,7 +31,8 @@ def preprocess(gray):
 def findTextRegion(img):
     region = []
     # 1. 查找轮廓
-    image, contours, hierarchy = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
     # 2. 筛选那些面积小的
     for i in range(len(contours)):
         cnt = contours[i]
@@ -79,6 +80,7 @@ def detect(img):
 
     # 3. 查找和筛选文字区域
     region = findTextRegion(dilation)
+
     # 4. 用绿线画出这些找到的轮廓
     for box in region:
         h = abs(box[0][1] - box[2][1])
@@ -96,9 +98,13 @@ def detect(img):
 
 def ocrIdCard(imgPath, realId=""):
     img = cv2.imread(imgPath, cv2.IMREAD_COLOR)
-    img = cv2.resize(img, (428, 270), interpolation=cv2.INTER_CUBIC)
+    cv2.imshow("image", img)
+    cv2.waitKey(0)
+    #img = cv2.resize(img, (428, 270), interpolation=cv2.INTER_CUBIC)
     idImg = detect(img)
-    image = Image.fromarray(idImg)
+    # image = Image.fromarray(idImg)
+
+    '''
     tessdata_dir_config = '-c tessedit_char_whitelist=0123456789X --tessdata-dir "./"'
     print("checking")
     print('the real id is '+realId)
@@ -111,6 +117,7 @@ def ocrIdCard(imgPath, realId=""):
     else:
         print('sorry,it is false')
     # print(pytesseract.image_to_string(image, lang='eng', config=tessdata_dir_config))
+    '''
     if debug:
         f, axarr = plt.subplots(2, 3)
         axarr[0, 0].imshow(cv2.imread(imgPath))
@@ -122,4 +129,4 @@ def ocrIdCard(imgPath, realId=""):
         plt.show()
 
 if __name__=="__main__":
-    ocrIdCard("test1.png", "11204416541220243X")
+    ocrIdCard("images/8790.jpeg", "11204416541220243X")
