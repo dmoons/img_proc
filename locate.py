@@ -81,7 +81,7 @@ def locate(image):
 
 
 if __name__ =='__main__':
-    pics_path = sys.argv[1];#获取所给图片目录
+    pics_path = sys.argv[1] #获取所给图片目录
     image = cv2.imread(pics_path)
     image = imutils.resize(image, width=600)
     roi, contours = locate(image)

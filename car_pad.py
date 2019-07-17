@@ -60,6 +60,7 @@ cv2.waitKey(0)
  
 #建立一个椭圆核函数
 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+
 #执行图像形态学, 细节直接查文档，很简单
 closed = cv2.morphologyEx(Binary, cv2.MORPH_CLOSE, kernel)
 closed = cv2.erode(closed, None, iterations=4)

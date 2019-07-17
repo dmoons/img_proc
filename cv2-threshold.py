@@ -22,3 +22,4 @@ for i in range(7):
     plt.xticks([]),plt.yticks([])
 
 plt.show()
+

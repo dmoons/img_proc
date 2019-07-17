@@ -21,13 +21,15 @@ k = cv2.getStructuringElement(cv2.MORPH_CROSS, (6, 6))
 d = cv2.dilate(thresh, k)
 
 # 提取图片中的轮廓
-im, co, h = cv2.findContours(d, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+co, h = cv2.findContours(d, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 #提取小轮廓：
 boxes = []
 for i in range(len(h[0])):
     if h[0][i][3] == 0:
         boxes.append(h[0][i])
+
+img = co.copy()
 
 #提取数字：
 nm = []
@@ -38,5 +40,7 @@ for j in range(len(boxes)):
         #在原图中框选各个数字
         img = cv2.rectangle(img, (x-1,y-1), (x+w+1,y+h+1), (0,0,255), 2)
 
-cv2.imwrite("./images/final.jpg", img)
+#cv2.imwrite("./images/final.jpg", img)
+cv2.imshow("final", img)
+cv2.waitKey()
 

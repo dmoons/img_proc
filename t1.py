@@ -1,5 +1,6 @@
 #!/usr/local/bin/python3
 # -*-coding:utf-8 -*-
+
 import cv2
 import os
 import time
@@ -7,6 +8,8 @@ import time
 __author__ = "DMOONS"
 
 print("OpenCV Version:", cv2.__version__)
+
+exit(0)
 
 # 保存截图
 save_path = './img/'
@@ -27,6 +30,7 @@ print('Picture size:' + repr(size))
 
 # 帧率
 fps = 5
+
 # 总是取前一帧做为背景（不用考虑环境影响）
 pre_frame = None
 

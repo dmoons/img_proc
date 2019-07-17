@@ -2,8 +2,8 @@ from matplotlib import pyplot as plt
 import numpy as np
 import cv2
 
-rawimg = cv2.imread("./images/meter4.jpeg")
-rawimg = rawimg - 246
+rawimg = cv2.imread("./images/code.png")
+rawimg = rawimg - 250
 fig = plt.figure()
 fig.add_subplot(2,3,1)
 plt.title("raw image")
@@ -11,8 +11,8 @@ plt.imshow(rawimg)
 
 fig.add_subplot(2,3,2)
 plt.title("grey scale image")
-grayscaleimg = cv2.cvtColor(rawimg,cv2.COLOR_BGR2GRAY)
-plt.imshow(grayscaleimg,cmap='gray')
+grayscaleimg = cv2.cvtColor(rawimg, cv2.COLOR_BGR2GRAY)
+plt.imshow(grayscaleimg, cmap='gray')
 
 # counting non-zero value by row , axis y
 row_nz = []
@@ -48,7 +48,7 @@ sliced_y_img = grayscaleimg[upper_y:lower_y,:]
 plt.imshow(sliced_y_img)
 
 # then we find left and right boundary of every digital (x, on column)
-fig.add_subplot(2,3,6)
+fig.add_subplot(2, 3, 6)
 plt.title("x boudary deleted")
 column_boundary_list = []
 record = False
@@ -59,12 +59,15 @@ img_list = []
 xl = [ column_boundary_list[i:i+2] for i in range(0,len(column_boundary_list),2) ]
 for x in xl:
     img_list.append( sliced_y_img[:,x[0]:x[1]] )
+
 # del invalid image
 img_list = [ x for x in img_list if x.shape[1] < 5 ]
+
 # show image
 fig = plt.figure()
 for i,img in enumerate(img_list):
     fig.add_subplot(3,4,i+1)
     plt.imshow(img)
-    plt.imsave("./result/%s.jpg"%i,img)
+    #plt.imsave("./result/%s.jpg"%i,img)
 plt.show()
+

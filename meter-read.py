@@ -317,3 +317,4 @@ output.extend(groupOutput)
 print("Meter digits: {}".format("".join(output)))
 cv2.imshow("Image", image)  # TODO 效果不是很好，需要改进
 cv2.waitKey(0)
+
